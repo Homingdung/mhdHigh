@@ -9,26 +9,30 @@ import os
 from ufl.algorithms.ad import expand_derivatives
 
 # space paramters
-baseN = 3
+baseN = 4
 
 # physical parameters
 Re = Constant(1)
 Rem = Constant(1)
 S = Constant(1)
 RH = Constant(1)
+alpha = 1.0
+beta = 1.0
 
 # time parameters
 stage = 1
 t = Constant(0)
-dt = Constant(0.01)
+dt = Constant(0.001)
 T = 1.0
 
 def energy(u, A):
-    return assemble(0.5 * inner(u, u) * dx) + assemble(S * inner(curl(A), curl(A)) * dx)
+    return assemble(0.5 * inner(u, u) * dx + S * inner(curl(A), curl(A)) * dx)
 
-def helicity(A):
+def helicity_mag(A):
     return assemble(inner(A, curl(A)) * dx)
 
+def helicity_cross(u, A):
+    return assemble(inner(u, curl(u)) * dx + 2*S/RH * inner(u, curl(A)) * dx)
 
 mesh = PeriodicUnitCubeMesh(baseN, baseN, baseN)
 (x, y, z0) = SpatialCoordinate(mesh)
@@ -44,7 +48,6 @@ z_test = TestFunction(Z)
 (ut, At, jt, Ht, wt, pt, phit) = split(z_test)
 
 butcher_tableau=GaussLegendre(stage)
-
 
 # initial condition, Mao-Xi-2025
 def g(x):
@@ -83,12 +86,15 @@ F = (
     + inner(A, grad(phit)) * dx
 )
 
+
 lu = {
-    "snes_type": "newtonls",
-    "ksp_type": "preonly",
-    "pc_type": "lu",
-    "pc_factor_mat_solver_type": "mumps",
+	 "mat_type": "aij",
+	 "snes_type": "newtonls",
+	 "ksp_type":"preonly",
+	 "pc_type": "lu",
+	 "pc_factor_mat_solver_type":"mumps"
 }
+
 
 sp = lu
 
@@ -99,5 +105,11 @@ while (float(t) < float(T - dt) + 1.0e-10):
     if mesh.comm.rank == 0:
         print(GREEN % f"Solving for t = {float(t):.4f}")
     stepper.advance()
+    (u, A, j, H, w, p, phi) = z.subfunctions
+    energy_ = energy(u, A)
+    helicity_mag_ = helicity_mag(A)
+    helicity_cross_ = helicity_cross(u, A)
+    helicity_hybrid_ = helicity_mag_ + alpha * beta * helicity_cross_
+    print(f"time={float(t):.4f}, energy={energy_}, Maghelicity={helicity_mag_}, Crosshelicity={helicity_cross_}, Hybridhelicity={helicity_hybrid_}")
 
 
